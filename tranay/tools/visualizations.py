@@ -2,7 +2,8 @@
 
 from base64 import b64encode
 from typing import Any, List, Union, Annotated
-import json # Import json for potential MongoDB query parsing (though not strictly needed here)
+import json
+import pandas as pd
 
 from mcp.types import ImageContent
 import plotly.express as px
@@ -12,9 +13,8 @@ from tranay.tools import query_utils
 
 
 def _fig_to_image(fig):
+    """Converts a Plotly figure to a base64 encoded image content object."""
     fig_encoded = b64encode(fig.to_image(format='png')).decode()
-    # img_b64 = "data:image/png;base64," + fig_encoded # This line was redundant
-
     return ImageContent(
         type='image',
         data=fig_encoded,
@@ -36,290 +36,238 @@ class Visualizations:
             self.bar_plot,
         ]
 
-    def _get_df_from_source(self, source_id, query):
+    def _get_df_from_source(self, source, query):
         """
         Executes the query against the specified source and returns a DataFrame.
-
-        For MongoDB sources (source_type == 'mongodb'), the 'query' parameter
-        must be a JSON string compatible with query_utils.execute_query for MongoDB.
-        Example: '{"collection": "my_collection", "filter": {"field": "value"}}'
-
-        For other sources, 'query' should be a standard SQL string.
         """
-        source = self.data_sources.get(source_id)
-        if not source:
-            raise Exception(f"Source {source_id} Not Found")
+        source_info = self.data_sources.get(source)
+        if not source_info:
+            raise Exception(f"Source {source} Not Found")
 
-        # The logic for handling different source types (including MongoDB)
-        # is encapsulated within query_utils.execute_query.
-        # We just pass the source and query (string) to it.
-        # The query_utils.execute_query function already handles the
-        # source['source_type'] check and processes the 'query' string accordingly.
-        return query_utils.execute_query(source, query)
+        df = query_utils.execute_query(source_info, query)
 
+        # Flatten nested object columns for easier plotting
+        if isinstance(df, pd.DataFrame):
+            df_final = df.copy()
+            cols_to_drop = []
+            for col in df.columns:
+                # Check if column contains dictionaries
+                if df[col].dtype == 'object' and df[col].dropna().apply(lambda x: isinstance(x, dict)).any():
+                    normalized_df = pd.json_normalize(df[col], sep='.')
+                    # Prefix the new columns with the original column name
+                    normalized_df.columns = [f"{col}.{sub_col}" for sub_col in normalized_df.columns]
+                    df_final = df_final.join(normalized_df)
+                    cols_to_drop.append(col)
+            
+            if cols_to_drop:
+                df_final = df_final.drop(columns=cols_to_drop)
+            return df_final
+            
+        return df
 
-    # --- Updated Docstrings for all visualization methods ---
+    # --- ✨ All plotting functions now have a consistent, final structure ✨ ---
 
     def scatter_plot(self,
-        source_id: Annotated[
-            str, Field(description='The data source to run the query on')
-        ],
-        query: Annotated[
-            str, Field(
-                description=(
-                    "Query to run on the data source. "
-                    "For SQL sources (sqlite, mysql, postgresql, duckdb, csv, parquet, clickhouse), use SQL syntax. "
-                    "For MongoDB, provide a JSON string with 'collection' and optional 'filter'/'projection'. "
-                    "Example for MongoDB: '{\"collection\": \"users\", \"filter\": {\"age\": {\"$gt\": 30}}}'"
-                )
-            )
-        ],
-        x: Annotated[
-            str, Field(description='Column name from query result to use for x-axis')
-        ],
-        y: Annotated[
-            str, Field(description='Column name from query result to use for y-axis')
-        ],
-        color: Annotated[
-            str | None, Field(description='Optional; column name from query result to use for coloring the points, with color representing another dimension')
-        ] = None,
+        source: Annotated[str, Field(description="The unique data source ID.")],
+        x: Annotated[str, Field(description="Column for x-axis. For nested data, use dot notation.")],
+        y: Annotated[str, Field(description="Column for y-axis. For nested data, use dot notation.")],
+        query: Annotated[str | None, Field(description="For SQL sources, the SQL query to run.")] = None,
+        collection: Annotated[str | None, Field(description="For MongoDB, the collection name.")] = None,
+        filter: Annotated[str | None, Field(description="For MongoDB, a JSON filter string.")] = None,
+        project_id: Annotated[str | None, Field(description="For tranay_api sources, the project ID.")] = None,
+        dataframe_query: Annotated[str | None, Field(description="A query string to filter data after it's fetched. E.g., 'sensor_id == 2007'.")] = None,
+        color: Annotated[str | None, Field(description='Optional; column name for coloring points.')] = None,
+        title: Annotated[str | None, Field(description='Optional; a title for the plot.')] = None
     ) -> str:
-        """
-        Run query against specified source and make a scatter plot using the result.
-        The query format depends on the source type:
-        - SQL sources: Standard SQL query string.
-        - MongoDB: JSON string specifying 'collection' and optionally 'filter'/'projection'.
-        This will return an image of the plot.
-        """
-
+        """Generates a scatter plot from a data source."""
         try:
-            df = self._get_df_from_source(source_id, query)
-            fig = px.scatter(df, x=x, y=y, color=color)
-            fig.update_xaxes(autotickangles=[0, 45, 60, 90])
+            source_info = self.data_sources.get(source)
+            if not source_info: return f"Source '{source}' Not Found"
+            
+            final_query = query_utils.build_query_str(source_info, query=query, collection=collection, filter_obj=filter, project_id=project_id)
+            if not final_query: return "Query building failed. Please provide valid parameters for the source type."
+            
+            df = self._get_df_from_source(source, final_query)
 
+            if dataframe_query:
+                try:
+                    df = df.query(dataframe_query)
+                    if df.empty: return f"The dataframe_query '{dataframe_query}' resulted in no data."
+                except Exception as e: return f"Error applying dataframe_query: {e}"
+
+            fig = px.scatter(df, x=x, y=y, color=color, title=title)
+            fig.update_xaxes(autotickangles=[0, 45, 60, 90])
             return _fig_to_image(fig)
         except Exception as e:
-            # Consider logging the exception for debugging
-            # import logging
-            # logging.exception(f"Error in scatter_plot for source {source_id}: {e}")
             return f"Error generating scatter plot: {str(e)}"
 
-
     def line_plot(self,
-        source_id: Annotated[
-            str, Field(description='The data source to run the query on')
-        ],
-        # Inside line_plot definition in visualizations.py
-        query: Annotated[
-            str, Field(
-                description=(
-                    "Query to run on the data source. "
-                    "For SQL sources (sqlite, mysql, postgresql, duckdb, csv, parquet, clickhouse), use SQL syntax. "
-                    "For MongoDB, provide a JSON string with 'collection' and optional 'filter'/'projection'. "
-                    "Example for MongoDB: '{\"collection\": \"metrics\", \"filter\": {\"timestamp\": {\"$gte\": \"2023-01-01\"}}}'"
-                )
-            )
-        ],
-        x: Annotated[
-            str, Field(description='Column name from query result to use for x-axis')
-        ],
-        y: Annotated[
-            str, Field(description='Column name from query result to use for y-axis')
-        ],
-        color: Annotated[
-            str | None, Field(description='Optional; column name from query result to use for drawing multiple colored lines representing another dimension')
-        ] = None,
+        source: Annotated[str, Field(description="The unique data source ID.")],
+        x: Annotated[str, Field(description="Column for x-axis. For nested data, use dot notation.")],
+        y: Annotated[str, Field(description="Column for y-axis. For nested data, use dot notation.")],
+        query: Annotated[str | None, Field(description="For SQL sources, the SQL query to run.")] = None,
+        collection: Annotated[str | None, Field(description="For MongoDB, the collection name.")] = None,
+        filter: Annotated[str | None, Field(description="For MongoDB, a JSON filter string.")] = None,
+        project_id: Annotated[str | None, Field(description="For tranay_api sources, the project ID.")] = None,
+        dataframe_query: Annotated[str | None, Field(description="A query string to filter data after it's fetched. E.g., 'sensor_id == 2007'.")] = None,
+        color: Annotated[str | None, Field(description='Optional; column name for coloring lines.')] = None,
+        title: Annotated[str | None, Field(description='Optional; a title for the plot.')] = None
     ) -> str:
-        """
-        Run query against specified source and make a line plot using the result.
-        The query format depends on the source type:
-        - SQL sources: Standard SQL query string.
-        - MongoDB: JSON string specifying 'collection' and optionally 'filter'/'projection'.
-        This will return an image of the plot.
-        """
-
+        """Generates a line plot from a data source."""
         try:
-            df = self._get_df_from_source(source_id, query)
-            fig = px.line(df, x=x, y=y, color=color)
-            fig.update_xaxes(autotickangles=[0, 45, 60, 90])
+            source_info = self.data_sources.get(source)
+            if not source_info: return f"Source '{source}' Not Found"
 
+            final_query = query_utils.build_query_str(source_info, query=query, collection=collection, filter_obj=filter, project_id=project_id)
+            if not final_query: return "Query building failed. Please provide valid parameters for the source type."
+
+            df = self._get_df_from_source(source, final_query)
+            
+            if dataframe_query:
+                try:
+                    df = df.query(dataframe_query)
+                    if df.empty: return f"The dataframe_query '{dataframe_query}' resulted in no data."
+                except Exception as e: return f"Error applying dataframe_query: {e}"
+
+            fig = px.line(df, x=x, y=y, color=color, title=title)
+            fig.update_xaxes(autotickangles=[0, 45, 60, 90])
             return _fig_to_image(fig)
         except Exception as e:
             return f"Error generating line plot: {str(e)}"
 
-
     def histogram(self,
-        source_id: Annotated[
-            str, Field(description='The data source to run the query on')
-        ],
-        query: Annotated[
-            str, Field(
-                description=(
-                    "Query to run on the data source. "
-                    "For SQL sources, use SQL syntax. "
-                    "For MongoDB, provide a JSON string with 'collection' and optional 'filter'/'projection'. "
-                    "Example for MongoDB: '{\"collection\": \"scores\", \"filter\": {\"subject\": \"math\"}}'"
-                )
-            )
-        ],
-        column: Annotated[
-            str, Field(description='Column name from query result to use for the histogram')
-        ],
-        color: Annotated[
-            str | None, Field(description='Optional; column name from query result to use for drawing multiple colored histograms representing another dimension')
-        ] = None,
-        nbins: Annotated[
-            int | None, Field(description='Optional; number of bins')
-        ] = None,
+        source: Annotated[str, Field(description="The unique data source ID.")],
+        column: Annotated[str, Field(description="Column to plot. For nested data, use dot notation.")],
+        query: Annotated[str | None, Field(description="For SQL sources, the SQL query to run.")] = None,
+        collection: Annotated[str | None, Field(description="For MongoDB, the collection name.")] = None,
+        filter: Annotated[str | None, Field(description="For MongoDB, a JSON filter string.")] = None,
+        project_id: Annotated[str | None, Field(description="For tranay_api sources, the project ID.")] = None,
+        dataframe_query: Annotated[str | None, Field(description="A query string to filter data after it's fetched. E.g., 'sensor_id == 2007'.")] = None,
+        color: Annotated[str | None, Field(description='Optional; column name for coloring histograms.')] = None,
+        nbins: Annotated[int | None, Field(description='Optional; number of bins')] = None,
+        title: Annotated[str | None, Field(description='Optional; a title for the plot.')] = None
     ) -> str:
-        """
-        Run query against specified source and make a histogram using the result.
-        The query format depends on the source type:
-        - SQL sources: Standard SQL query string.
-        - MongoDB: JSON string specifying 'collection' and optionally 'filter'/'projection'.
-        This will return an image of the plot.
-        """
-
+        """Generates a histogram from a data source."""
         try:
-            df = self._get_df_from_source(source_id, query)
-            fig = px.histogram(df, x=column, color=color, nbins=nbins)
-            fig.update_xaxes(autotickangles=[0, 45, 60, 90])
+            source_info = self.data_sources.get(source)
+            if not source_info: return f"Source '{source}' Not Found"
 
+            final_query = query_utils.build_query_str(source_info, query=query, collection=collection, filter_obj=filter, project_id=project_id)
+            if not final_query: return "Query building failed. Please provide valid parameters for the source type."
+
+            df = self._get_df_from_source(source, final_query)
+
+            if dataframe_query:
+                try:
+                    df = df.query(dataframe_query)
+                    if df.empty: return f"The dataframe_query '{dataframe_query}' resulted in no data."
+                except Exception as e: return f"Error applying dataframe_query: {e}"
+
+            fig = px.histogram(df, x=column, color=color, nbins=nbins, title=title)
+            fig.update_xaxes(autotickangles=[0, 45, 60, 90])
             return _fig_to_image(fig)
         except Exception as e:
             return f"Error generating histogram: {str(e)}"
 
-
     def strip_plot(self,
-        source_id: Annotated[
-            str, Field(description='The data source to run the query on')
-        ],
-        query: Annotated[
-            str, Field(
-                description=(
-                    "Query to run on the data source. "
-                    "For SQL sources, use SQL syntax. "
-                    "For MongoDB, provide a JSON string with 'collection' and optional 'filter'/'projection'. "
-                    "Example for MongoDB: '{\"collection\": \"experiments\", \"filter\": {\"group\": \"A\"}}'"
-                )
-            )
-        ],
-        x: Annotated[
-            str, Field(description='Column name from query result to use for x-axis')
-        ],
-        y: Annotated[
-            str, Field(description='Column name from query result to use for y-axis')
-        ],
-        color: Annotated[
-            str | None, Field(description='Optional column name from query result to show multiple colored strips representing another dimension')
-        ] = None,
+        source: Annotated[str, Field(description="The unique data source ID.")],
+        x: Annotated[str, Field(description="Column for x-axis. For nested data, use dot notation.")],
+        y: Annotated[str, Field(description="Column for y-axis. For nested data, use dot notation.")],
+        query: Annotated[str | None, Field(description="For SQL sources, the SQL query to run.")] = None,
+        collection: Annotated[str | None, Field(description="For MongoDB, the collection name.")] = None,
+        filter: Annotated[str | None, Field(description="For MongoDB, a JSON filter string.")] = None,
+        project_id: Annotated[str | None, Field(description="For tranay_api sources, the project ID.")] = None,
+        dataframe_query: Annotated[str | None, Field(description="A query string to filter data after it's fetched. E.g., 'sensor_id == 2007'.")] = None,
+        color: Annotated[str | None, Field(description='Optional; column name for coloring strips.')] = None,
+        title: Annotated[str | None, Field(description='Optional; a title for the plot.')] = None
     ) -> str:
-        """
-        Run query against specified source and make a strip plot using the result.
-        The query format depends on the source type:
-        - SQL sources: Standard SQL query string.
-        - MongoDB: JSON string specifying 'collection' and optionally 'filter'/'projection'.
-        This will return an image of the plot.
-        """
-
+        """Generates a strip plot from a data source."""
         try:
-            df = self._get_df_from_source(source_id, query)
-            fig = px.strip(df, x=x, y=y, color=color) # Note: px.strip might not exist, consider px.scatter with marginal_y?
-            fig.update_xaxes(autotickangles=[0, 45, 60, 90])
+            source_info = self.data_sources.get(source)
+            if not source_info: return f"Source '{source}' Not Found"
 
+            final_query = query_utils.build_query_str(source_info, query=query, collection=collection, filter_obj=filter, project_id=project_id)
+            if not final_query: return "Query building failed. Please provide valid parameters for the source type."
+            
+            df = self._get_df_from_source(source, final_query)
+
+            if dataframe_query:
+                try:
+                    df = df.query(dataframe_query)
+                    if df.empty: return f"The dataframe_query '{dataframe_query}' resulted in no data."
+                except Exception as e: return f"Error applying dataframe_query: {e}"
+
+            fig = px.strip(df, x=x, y=y, color=color, title=title)
+            fig.update_xaxes(autotickangles=[0, 45, 60, 90])
             return _fig_to_image(fig)
         except Exception as e:
-             # px.strip might not be standard in older plotly versions or might behave differently
-             # Consider using px.scatter with marginal_y='rug' or similar if px.strip is problematic
-            return f"Error generating strip plot (check px.strip availability): {str(e)}"
-
+            return f"Error generating strip plot: {str(e)}"
 
     def box_plot(self,
-        source_id: Annotated[
-            str, Field(description='The data source to run the query on')
-        ],
-        query: Annotated[
-            str, Field(
-                description=(
-                    "Query to run on the data source. "
-                    "For SQL sources, use SQL syntax. "
-                    "For MongoDB, provide a JSON string with 'collection' and optional 'filter'/'projection'. "
-                    "Example for MongoDB: '{\"collection\": \"salaries\", \"filter\": {\"department\": \"Sales\"}}'"
-                )
-            )
-        ],
-        x: Annotated[
-            str, Field(description='Column name from query result to use for x-axis (grouping)')
-        ],
-        y: Annotated[
-            str, Field(description='Column name from query result to use for y-axis (values)')
-        ],
-        color: Annotated[
-            str | None, Field(description='Optional column name from query result to show multiple colored boxes representing another dimension')
-        ] = None,
+        source: Annotated[str, Field(description="The unique data source ID.")],
+        x: Annotated[str, Field(description="Column for x-axis (grouping). For nested data, use dot notation.")],
+        y: Annotated[str, Field(description="Column for y-axis (values). For nested data, use dot notation.")],
+        query: Annotated[str | None, Field(description="For SQL sources, the SQL query to run.")] = None,
+        collection: Annotated[str | None, Field(description="For MongoDB, the collection name.")] = None,
+        filter: Annotated[str | None, Field(description="For MongoDB, a JSON filter string.")] = None,
+        project_id: Annotated[str | None, Field(description="For tranay_api sources, the project ID.")] = None,
+        dataframe_query: Annotated[str | None, Field(description="A query string to filter data after it's fetched. E.g., 'sensor_id == 2007'.")] = None,
+        color: Annotated[str | None, Field(description='Optional; column name for coloring the boxes.')] = None,
+        title: Annotated[str | None, Field(description='Optional; a title for the plot.')] = None
     ) -> str:
-        """
-        Run query against specified source and make a box plot using the result.
-        The query format depends on the source type:
-        - SQL sources: Standard SQL query string.
-        - MongoDB: JSON string specifying 'collection' and optionally 'filter'/'projection'.
-        This will return an image of the plot.
-        """
-
+        """Generates a box plot from a data source."""
         try:
-            df = self._get_df_from_source(source_id, query)
-            fig = px.box(df, x=x, y=y, color=color)
-            fig.update_xaxes(autotickangles=[0, 45, 60, 90])
+            source_info = self.data_sources.get(source)
+            if not source_info: return f"Source '{source}' Not Found"
 
+            final_query = query_utils.build_query_str(source_info, query=query, collection=collection, filter_obj=filter, project_id=project_id)
+            if not final_query: return "Query building failed. Please provide valid parameters for the source type."
+
+            df = self._get_df_from_source(source, final_query)
+
+            if dataframe_query:
+                try:
+                    df = df.query(dataframe_query)
+                    if df.empty: return f"The dataframe_query '{dataframe_query}' resulted in no data."
+                except Exception as e: return f"Error applying dataframe_query: {e}"
+
+            fig = px.box(df, x=x, y=y, color=color, title=title)
+            fig.update_xaxes(autotickangles=[0, 45, 60, 90])
             return _fig_to_image(fig)
         except Exception as e:
             return f"Error generating box plot: {str(e)}"
 
-
     def bar_plot(self,
-        source_id: Annotated[
-            str, Field(description='The data source to run the query on')
-        ],
-        query: Annotated[
-            str, Field(
-                description=(
-                    "Query to run on the data source. "
-                    "For SQL sources, use SQL syntax. "
-                    "For MongoDB, provide a JSON string with 'collection' and optional 'filter'/'projection'. "
-                    "Example for MongoDB: '{\"collection\": \"inventory\", \"filter\": {\"category\": \"Electronics\"}}'"
-                )
-            )
-        ],
-        x: Annotated[
-            str, Field(description='Column name from query result to use for x-axis')
-        ],
-        y: Annotated[
-            str, Field(description='Column name from query result to use for y-axis')
-        ],
-        color: Annotated[
-            str | None, Field(description='Optional column name from query result to use as a 3rd dimension by splitting each bar into colored sections')
-        ] = None,
-        orientation: Annotated[
-            str, Field(description="Orientation of the bar plot, use 'v' for vertical (default) and 'h' for horizontal. Be mindful of choosing the correct X and Y columns as per orientation")
-        ] = 'v',
+        source: Annotated[str, Field(description="The unique data source ID.")],
+        x: Annotated[str, Field(description="Column for x-axis. For nested data, use dot notation.")],
+        y: Annotated[str, Field(description="Column for y-axis. For nested data, use dot notation.")],
+        query: Annotated[str | None, Field(description="For SQL sources, the SQL query to run.")] = None,
+        collection: Annotated[str | None, Field(description="For MongoDB, the collection name.")] = None,
+        filter: Annotated[str | None, Field(description="For MongoDB, a JSON filter string.")] = None,
+        project_id: Annotated[str | None, Field(description="For tranay_api sources, the project ID.")] = None,
+        dataframe_query: Annotated[str | None, Field(description="A query string to filter data after it's fetched. E.g., 'sensor_id == 2007'.")] = None,
+        color: Annotated[str | None, Field(description='Optional; column name for coloring the bars.')] = None,
+        orientation: Annotated[str, Field(description="Orientation of the bar plot, 'v' for vertical or 'h' for horizontal.")] = 'v',
+        title: Annotated[str | None, Field(description='Optional; a title for the plot.')] = None
     ) -> str:
-        """
-        Run query against specified source and make a bar plot using the result.
-        The query format depends on the source type:
-        - SQL sources: Standard SQL query string.
-        - MongoDB: JSON string specifying 'collection' and optionally 'filter'/'projection'.
-        This will return an image of the plot.
-        """
-
+        """Generates a bar plot from a data source."""
         try:
-            df = self._get_df_from_source(source_id, query)
-            fig = px.bar(df, x=x, y=y, color=color, orientation=orientation)
-            fig.update_xaxes(autotickangles=[0, 45, 60, 90])
+            source_info = self.data_sources.get(source)
+            if not source_info: return f"Source '{source}' Not Found"
 
+            final_query = query_utils.build_query_str(source_info, query=query, collection=collection, filter_obj=filter, project_id=project_id)
+            if not final_query: return "Query building failed. Please provide valid parameters for the source type."
+
+            df = self._get_df_from_source(source, final_query)
+
+            if dataframe_query:
+                try:
+                    df = df.query(dataframe_query)
+                    if df.empty: return f"The dataframe_query '{dataframe_query}' resulted in no data."
+                except Exception as e: return f"Error applying dataframe_query: {e}"
+
+            fig = px.bar(df, x=x, y=y, color=color, orientation=orientation, title=title)
+            fig.update_xaxes(autotickangles=[0, 45, 60, 90])
             return _fig_to_image(fig)
         except Exception as e:
             return f"Error generating bar plot: {str(e)}"
-
-
-if __name__ == "__main__":
-    print(ImageContent)

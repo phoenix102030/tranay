@@ -171,6 +171,14 @@ def add_dataurl():
             'url': url,
             'active': True,
         }
+    elif url.startswith("tranay-api://"):
+        actual_url = url.split("://", 1)[1] 
+        name = "api_data"
+        app.config['state']['sources'][f'{name}-tranay_api'] = {
+            'source_type': 'tranay_api',
+            'url': actual_url,
+            'active': True,
+        }
     else:
         pass
 

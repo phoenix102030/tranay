@@ -79,6 +79,9 @@ def load_cli_config():
         elif source.startswith('mongodb://'):
             source_type = 'mongodb'
             source_name = source.split('/')[-1].split('?')[0]
+        elif source.startswith('tranay-api://'):
+            source_type = 'tranay_api'
+            source_name = source.split('://')[1]
         else:
             continue
 

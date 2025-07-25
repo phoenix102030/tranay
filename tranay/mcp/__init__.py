@@ -56,14 +56,16 @@ for s in source_list:
         source_type = 'mysql'
         s = s.replace('mysql://', 'mysql+pymysql://')
         source_name = source.split('/')[-1].split('?')[0]
-    # --- Start of new code for MongoDB ---
     elif source.startswith('mongodb://') or source.startswith('mongodb+srv://'):
         source_type = 'mongodb'
-        # Extracts the database name from the connection string path
         source_name = source.split('/')[-1].split('?')[0]
-        if not source_name: # Handle case where db name is not in URI
+        if not source_name: 
             source_name = 'mongodb_db'
-    # --- End of new code for MongoDB ---
+    elif source.startswith('tranay-api://'):
+        source_type = 'tranay_api'
+        source_name = source.split('://')[1]
+
+
     elif source.startswith('clickhouse://'):
         source_type = 'clickhouse'
         source_name = source.split('/')[-1].split('?')[0]
@@ -92,8 +94,6 @@ for s in source_list:
 
 
 def tranayMCP(sources):
-    # This function assumes that your tranayTools class knows how to
-    # handle {'url': 'mongodb://...', 'source_type': 'mongodb'}
     tranay_tools = tranayTools(sources)
     tranay_mcp = FastMCP()
     for tool in tranay_tools.tools:
@@ -107,6 +107,5 @@ def main():
     # print(SOURCES)
     tranayMCP(SOURCES).run()
 
-# This is required to run the script from the command line
 if __name__ == '__main__':
     main()
