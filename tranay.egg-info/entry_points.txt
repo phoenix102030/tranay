@@ -1,0 +1,3 @@
+[console_scripts]
+tranay_mcp = tranay.mcp:main
+tranay_studio = tranay.studio:main

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>tranay Studio</title>
+    <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+	  <meta name="description" content="AI Data Analysis">
+	  <link rel="shortcut icon" type="image/png" href="/static/logo.png">
+
+    <style>
+      {% include('css/style.css') %}
+    </style>
+
+    <script src="/static/js/htmx.min.js"></script>
+    <script src="/static/js/htmx-multi-swap.js"></script>
+  </head>
+  <body hx-boost="true" hx-target="main" hx-push-url="true" hx-ext="multi-swap">
+    <header>
+      <a href="/">
+        <img src="/static/logo.svg" class="logo">
+      </a>
+      <a href="/">
+        💬
+      </a>
+      <a href="/sources/manage" title="Manage Sources">
+        📎
+      </a>
+      <a href="/settings" title="Settings">
+        🛠
+      </a>
+    </header>
+    {% with slugs=slugs %}
+      {% include('nav.html') %}
+    {% endwith %}
+    <main id="main">
+      {{content | safe}}
+    </main>
+  </body>
+</html>

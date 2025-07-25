@@ -1,0 +1,6 @@
+<nav id="sidebar">
+  <a href="/new" style="margin-bottom: 1rem; font-weight: bold;">➕ New Chat</a>
+  {% for slug in slugs %}
+  <a href="/c/{{slug}}">{{slug}}</a>
+  {% endfor %}
+</nav>
