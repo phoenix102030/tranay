@@ -7,23 +7,21 @@ pip and venv (included with standard Python installations)
 ### Installation Steps
 Clone the Repository
 
-Bash
-```
+```Bash
 git clone https://gitlabe2.ext.net.nokia.com/sityang/mcp_llm.git
 cd tranay
 ```
 Create and Activate Virtual Environment
 
-Bash
-```
+
+```Bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 Install Dependencies
 This project uses pyproject.toml to manage dependencies. Install the project in editable mode, which will also install all required packages.
 
-Bash
-```
+```Bash
 pip install -e .
 ```
 ## 🔧 Configuration
@@ -31,8 +29,8 @@ Before you can analyze data, you need to configure your LLM and data sources.
 
 Run the Application Once to generate the initial configuration files.
 
-Bash
-```
+
+```Bash
 tranay_studio
 ```
 Open the Web Interface by navigating to http://127.0.0.1:6066 in your browser.
@@ -64,14 +62,12 @@ You can also upload local files like CSVs.
 ## ▶️ Running the Demo
 Activate the Virtual Environment in your terminal:
 
-Bash
-```
+```Bash
 source .venv/bin/activate
 ```
 Start the Flask Server:
 
-Bash
-```
+```Bash
 tranay_studio
 ```
 Open the Studio in your web browser at http://127.0.0.1:6066.
