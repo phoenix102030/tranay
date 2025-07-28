@@ -32,9 +32,9 @@ Before you can analyze data, you need to configure your LLM and data sources.
 Run the Application Once to generate the initial configuration files.
 
 Bash
-'
+```
 tranay_studio
-'
+```
 Open the Web Interface by navigating to http://127.0.0.1:6066 in your browser.
 
 Configure the LLM:
@@ -65,15 +65,15 @@ You can also upload local files like CSVs.
 Activate the Virtual Environment in your terminal:
 
 Bash
-'
+```
 source .venv/bin/activate
-'
+```
 Start the Flask Server:
 
 Bash
-'
+```
 tranay_studio
-'
+```
 Open the Studio in your web browser at http://127.0.0.1:6066.
 
 ## 💡 Example Usage
