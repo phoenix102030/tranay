@@ -8,23 +8,24 @@ pip and venv (included with standard Python installations)
 Clone the Repository
 
 Bash
-
+```
 git clone https://gitlabe2.ext.net.nokia.com/sityang/mcp_llm.git
 cd tranay
+```
 Create and Activate Virtual Environment
 
 Bash
-'
+```
 python3 -m venv .venv
 source .venv/bin/activate
-'
+```
 Install Dependencies
 This project uses pyproject.toml to manage dependencies. Install the project in editable mode, which will also install all required packages.
 
 Bash
-'
+```
 pip install -e .
-'
+```
 ## 🔧 Configuration
 Before you can analyze data, you need to configure your LLM and data sources.
 
