@@ -1,0 +1,2 @@
+MPS_TO_KPH = 3.6
+NS_TO_S = 1e9

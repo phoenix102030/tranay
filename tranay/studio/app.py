@@ -2,17 +2,45 @@ from datetime import datetime
 import json
 
 from flask import Flask, make_response, redirect, request, render_template
+from flask_cors import CORS
 import httpx
 import mistune
 import tomli_w
 from werkzeug.utils import secure_filename
+from celery import Celery, Task
 
 from tranay.studio import storage, agent_wrapper
 from tranay.tools import tranayTools
 
 
 app = Flask(__name__)
+CORS(app)
 app.config['state'] = storage.load_state()
+
+def make_celery(app):
+    """
+    Factory to configure Celery with the Flask app context.
+    This ensures that tasks have access to app.config and other extensions.
+    """
+    celery = Celery(
+        app.import_name,
+        backend=app.config['CELERY_RESULT_BACKEND'],
+        broker=app.config['CELERY_BROKER_URL']
+    )
+    class ContextTask(Task):
+        def __call__(self, *args, **kwargs):
+            with app.app_context():
+                return self.run(*args, **kwargs)
+
+    celery.Task = ContextTask
+    return celery
+
+app.config.update(
+    CELERY_BROKER_URL='redis://localhost:6379/0',
+    CELERY_RESULT_BACKEND='redis://localhost:6379/0'
+)
+
+celery_app = make_celery(app)
 
 
 def boost(content: str, fallback=None, retarget=None, reswap=None, push_url=None) -> str:

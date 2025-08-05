@@ -57,5 +57,3 @@ def get_sensor_data_for_project(base_api_url, project_id):
     except requests.exceptions.RequestException as e:
         print(f"API Client Error: Could not fetch sensor data for project {project_id}. {e}")
         return None
-
-# The fetch_interactive_sensor_data() function has been removed.

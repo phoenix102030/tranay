@@ -135,7 +135,7 @@ class Agent:
     def run(self, messages):
         if type(messages) is str:
             messages = [{'role': 'user', 'content': messages}]
-
+    
         while True:
             # Conditionally create the headers
             headers = {}
@@ -154,18 +154,24 @@ class Agent:
                     'reasoning': {'exclude': True},
                 }
             )
-
+    
             print(res.text)
             resj = res.json()
             reply = resj['choices'][0]['message']
             messages.append(reply)
-
+    
             tool_calls = reply.get('tool_calls')
             if tool_calls:
                 for tool_call in tool_calls:
                     tool_name = tool_call['function']['name']
                     tool_args = json.loads(tool_call['function']['arguments'])
-                    tool_response = self._tool_map[tool_name](**tool_args)
+                    
+                    # Check if tool exists before calling
+                    if tool_name in self._tool_map:
+                        tool_response = self._tool_map[tool_name](**tool_args)
+                    else:
+                        tool_response = f"Error: Tool '{tool_name}' not found. Available tools: {list(self._tool_map.keys())}"
+                    
                     if type(tool_response) is ImageContent:
                         b64_data = tool_response.data
                         data_url = f'data:image/png;base64,{b64_data}'
@@ -189,7 +195,7 @@ class Agent:
                     })
             else:
                 break
-
+            
         return messages
 
     
