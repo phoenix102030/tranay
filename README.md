@@ -29,8 +29,9 @@ Before you can analyze data, you need to configure your LLM and data sources.
 
 Run the Application Once to generate the initial configuration files.
 
-
+You need to prepare two terminals to run the server by these two cmd:
 ```Bash
+celery -A tranay.studio.app.celery_app worker --loglevel=INFO
 tranay_studio
 ```
 Open the Web Interface by navigating to http://127.0.0.1:6066 in your browser.
